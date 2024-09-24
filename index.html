@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Object Recognition with Counting</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+        }
+        #container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+        #video, #canvas {
+            position: absolute;
+            top: 20px;
+            left: 0;
+            width: 70%;
+            height: 70%;
+            object-fit: cover;
+        }
+        #controls {
+            position: absolute;
+            top: 10px;
+            left: 20px;
+            z-index: 10;
+        }
+        #objectCount {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 10;
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 18px;
+            color: black;
+            max-width: 200px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div id="controls">
+        <button id="switchCamera">Switch Camera</button>
+        <button id="activateObjectRecognition">Activate Object Recognition</button>
+    </div>
+    <br>
+    <div id="container">
+        <video id="video" autoplay playsinline></video>
+        <canvas id="canvas"></canvas>
+        <div id="objectCount">Objects: </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const switchCameraButton = document.getElementById('switchCamera');
+        const objectRecognitionButton = document.getElementById('activateObjectRecognition');
+        const objectCountDisplay = document.getElementById('objectCount');
+
+        let currentStream;
+        let usingFrontCamera = true;
+        let model;
+        let objectRecognitionActive = false;
+
+        // Load the TensorFlow COCO-SSD model
+        async function loadObjectRecognitionModel() {
+            model = await cocoSsd.load();
+        }
+
+        // Get camera stream (front or back camera)
+        async function getCameraStream() {
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
+            }
+
+            const constraints = {
+                video: {
+                    facingMode: usingFrontCamera ? 'user' : 'environment',
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                }
+            };
+
+            try {
+                currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+                video.srcObject = currentStream;
+
+                video.onloadedmetadata = () => {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                };
+            } catch (error) {
+                console.error('Error accessing the camera: ', error);
+            }
+        }
+
+        // Function for detecting objects in the video stream
+        function detectObjects() {
+            model.detect(video).then(predictions => {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                const objectCount = {}; // To store the count of each object type on the right side
+
+                predictions.forEach(prediction => {
+                    const className = prediction.class;
+                    const bbox = prediction.bbox;
+
+                    const x = bbox[0];
+                    const width = bbox[2];
+
+                    // Draw bounding box
+                    ctx.beginPath();
+                    ctx.rect(bbox[0], bbox[1], bbox[2], bbox[3]);
+                    ctx.lineWidth = 2;
+                    ctx.strokeStyle = 'red';
+                    ctx.stroke();
+
+                    // Draw label
+                    ctx.font = '30px Arial';
+                    ctx.fillStyle = 'red';
+                    ctx.fillText(`${className} (${(prediction.score * 100).toFixed(1)}%)`, x, bbox[1] > 10 ? bbox[1] - 5 : 10);
+
+  
+                        if (objectCount[className]) {
+                            objectCount[className]++;
+                        } else {
+                            objectCount[className] = 1;
+                        }
+                });
+
+                // Update the object count display
+                updateObjectCountDisplay(objectCount);
+
+                // If object recognition is active, continue detection in real-time
+                if (objectRecognitionActive) {
+                    requestAnimationFrame(detectObjects);
+                }
+            });
+        }
+
+        // Function to update the display with object counts
+        function updateObjectCountDisplay(objectCount) {
+            objectCountDisplay.innerHTML = `<strong>Objects on Frame:</strong><br>`;
+            for (const [objectName, count] of Object.entries(objectCount)) {
+                objectCountDisplay.innerHTML += `${objectName}: ${count}<br>`;
+            }
+        }
+
+        // Switch between front and back camera
+        switchCameraButton.addEventListener('click', () => {
+            usingFrontCamera = !usingFrontCamera;
+            getCameraStream();
+        });
+
+        // Activate object recognition
+        objectRecognitionButton.addEventListener('click', () => {
+            objectRecognitionActive = true;
+            detectObjects();
+        });
+
+        // Load the model and start the camera
+        loadObjectRecognitionModel().then(() => {
+            getCameraStream();
+        });
+    </script>
+</body>
+</html>
